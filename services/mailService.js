@@ -28,7 +28,7 @@ const sendMail = async ({ to, subject, text, html }) => {
   }
 };
 
-const sendVerificationMail = ({ to, token, verificationEndPoint }) => {
+const sendVerificationMail = ({ to, verificationEndPoint }) => {
   const subject = 'Confirm your email';
   const text = '';
   const html = getHTMLForVerificationMail(verificationEndPoint);

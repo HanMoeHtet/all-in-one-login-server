@@ -3,4 +3,5 @@ const PHONE_NUMBER = 'PHONE_NUMBER';
 
 module.exports = {
   EMAIL,
+  PHONE_NUMBER,
 };

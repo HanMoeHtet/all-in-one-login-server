@@ -12,7 +12,14 @@ const checkIfEmailExists = async (email) => {
   });
 };
 
+const checkIfPhoneNumberExists = async (phoneNumber) => {
+  return await User.exists({
+    phoneNumber,
+  });
+};
+
 module.exports = {
   checkIfEmailExists,
   checkIfUsernameExists,
+  checkIfPhoneNumberExists,
 };
