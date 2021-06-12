@@ -4,15 +4,14 @@ const EmailVerification = require('../models/EmailVerification');
 const jwt = require('jsonwebtoken');
 
 const prepareVerificationMail = async (userId) => {
-  const salt = await bcrypt.genSalt();
-  emailVerification = new EmailVerification({
+  const secret = await bcrypt.genSalt();
+  const emailVerification = new EmailVerification({
     userId,
-    secret: salt,
+    secret,
   });
   await emailVerification.save();
-  const token = jwt.sign({ userId }, salt, {
-    expiresIn: '1d',
-  });
+
+  const token = jwt.sign({ userId }, secret);
 
   const clientEmailVerificationEndpoint =
     process.env.CLIENT_EMAIL_VERIFICATION_ENDPOINT;

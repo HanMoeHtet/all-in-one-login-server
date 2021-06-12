@@ -15,6 +15,8 @@ const {
   INCORRECT_OTP,
   INVALID_USER_ID,
   INVALID_EMAIL_VERIFICATION_ID,
+  INVALID_PHONE_NUMBER,
+  INVALID_USERNAME,
 } = require('../constants/errorTypes');
 const {
   checkIfUsernameExists,
@@ -28,6 +30,7 @@ const PhoneNumberVerification = require('../models/PhoneNumberVerification');
 const { sendOTP } = require('../services/smsService');
 const { prepareVerificationMail } = require('../utils/verificationMail');
 const { prepareVerificationSMS } = require('../utils/verificationSMS');
+const { getExpiredDate } = require('../utils/getExpiredDate');
 require('dotenv').config();
 
 const signUp = async (req, res) => {
@@ -39,6 +42,13 @@ const signUp = async (req, res) => {
     email,
     phoneNumber,
   } = req.body;
+
+  if (!username) {
+    return res.status(400).json({
+      error: INVALID_USERNAME,
+      message: 'Usernaem must be provided and must be a valid name',
+    });
+  }
 
   if (await checkIfUsernameExists(username)) {
     return res.status(409).json({
@@ -119,6 +129,7 @@ const signUp = async (req, res) => {
         message: 'Phone number must be provided and must be a valid number',
       });
     }
+
     if (await checkIfPhoneNumberExists(phoneNumber)) {
       return res.status(409).json({
         error: DUPLICATE_PHONE_NUMBER,
@@ -142,9 +153,9 @@ const signUp = async (req, res) => {
       });
     }
 
-    let phoneNumberVerificationId, otp;
+    let otp;
     try {
-      ({ phoneNumberVerificationId, otp } = await prepareVerificationSMS());
+      otp = await prepareVerificationSMS(user._id);
     } catch (err) {
       console.log(err);
       return res.status(500).json({
@@ -156,7 +167,7 @@ const signUp = async (req, res) => {
     sendOTP({ to: phoneNumber, otp });
 
     return res.status(200).json({
-      data: { ...user.toJSON(), phoneNumberVerificationId },
+      data: user,
       message: [
         'User successfully created.',
         `Verification code sent to ${phoneNumber}`,
@@ -223,29 +234,25 @@ const verifyEmail = async (req, res) => {
     });
   }
 
+  const expiredDate = getExpiredDate(
+    emailVerification.verifiedAt,
+    1 * 24 * 60 * 60 * 1000
+  );
+
+  if (expiredDate.getTime() < Date.now()) {
+    await EmailVerification.deleteOne({
+      _id: emailVerification._id,
+    });
+
+    return res.status(410).json({
+      error: EMAIL_VERIFICATION_TOKEN_EXPIRED,
+      message: `Token for email verification expired at ${err.expiredAt}.`,
+    });
+  }
+
   try {
     jwt.verify(token, emailVerification.secret);
   } catch (err) {
-    console.log(err);
-    if (err instanceof jwt.TokenExpiredError) {
-      await EmailVerification.deleteOne({
-        _id: emailVerification._id,
-      });
-
-      const verificationEndPoint = await prepareVerificationMail(userId);
-
-      sendVerificationMail({
-        to: user.email,
-        verificationEndPoint,
-      });
-      return res.status(410).json({
-        error: EMAIL_VERIFICATION_TOKEN_EXPIRED,
-        message: [
-          `Token for email verification expired at ${err.expiredAt}.`,
-          'Check your inbox for a new email from %appname%',
-        ],
-      });
-    }
     return res.status(400).json({
       error: INVALID_EMAIL_VERIFICATION_TOKEN,
       message:
@@ -269,39 +276,40 @@ const verifyEmail = async (req, res) => {
 };
 
 const sendNewEmail = async (req, res) => {
-  const userId = req.userId;
-
-  const user = await User.findOne({ _id: userId });
-
-  if (!user) {
-    return res.status(404).json({
-      error: INVALID_USER_ID,
-      message: 'User does not exists. Invalid user id',
+  if (req.user.emailVerifiedAt) {
+    return res.status(200).json({
+      data: {
+        emailVerifiedAt: req.user.emailVerifiedAt,
+      },
+      message: [
+        'Email is already verified',
+        `Email verified at ${req.user.emailVerifiedAt}`,
+      ],
     });
   }
 
   // delete previous email token if exists
-  if (await EmailVerification.exists({ userId })) {
-    await EmailVerification.deleteOne({ userId });
+  if (await EmailVerification.exists({ userId: req.user._id })) {
+    await EmailVerification.deleteOne({ userId: req.user._id });
   }
 
-  const verificationEndPoint = await prepareVerificationMail(userId);
+  const verificationEndPoint = await prepareVerificationMail(req.user._id);
 
   sendVerificationMail({
-    to: user.email,
+    to: req.user.email,
     verificationEndPoint,
   });
 
   return res.status(200).json({
     data: {},
-    message: `Verification email sent to ${user.email}`,
+    message: `Verification email sent to ${req.user.email}`,
   });
 };
 
 const verifyPhoneNumber = async (req, res) => {
-  const { phoneNumberVerificationId, otp } = req.body;
+  const { otp } = req.body;
 
-  if (!phoneNumberVerificationId || !otp) {
+  if (!otp) {
     return res.status(400).json({
       error: INVALID_PHONE_NUMBER_VERIFICATION_TOKEN,
       message:
@@ -310,7 +318,7 @@ const verifyPhoneNumber = async (req, res) => {
   }
 
   const phoneNumberVerification = await PhoneNumberVerification.findOne({
-    _id: phoneNumberVerificationId,
+    userId: req.user._id,
   });
 
   if (!phoneNumberVerification) {
@@ -318,6 +326,22 @@ const verifyPhoneNumber = async (req, res) => {
       error: INVALID_PHONE_NUMBER_VERIFICATION_TOKEN,
       message:
         'Phone number verification is invalid. Make sure you have provided a valid phone number and check your inbox again.',
+    });
+  }
+
+  const expiredDate = getExpiredDate(
+    phoneNumberVerification.createdAt,
+    10 * 60 * 1000
+  );
+
+  if (expiredDate.getTime() < Date.now()) {
+    await EmailVerification.deleteOne({
+      _id: phoneNumberVerification._id,
+    });
+
+    return res.status(410).json({
+      error: EMAIL_VERIFICATION_TOKEN_EXPIRED,
+      message: `Token for email verification expired at ${err.expiredAt}.`,
     });
   }
 
@@ -339,33 +363,57 @@ const verifyPhoneNumber = async (req, res) => {
         'OTP is not correct. Please check your inbox again or get a new code.',
     });
   }
-  const user = await User.findOne({
-    _id: req.userId,
+
+  await PhoneNumberVerification.deleteOne({
+    _id: phoneNumberVerification._id,
   });
 
-  if (!user) {
-    return res.status(404).json({
-      error: INVALID_USER_ID,
-      message: 'User does not exists. Invalid user id',
-    });
-  }
-
-  user.phoneNumberVerifiedAt = Date.now();
-  await user.save();
+  req.user.phoneNumberVerifiedAt = Date.now();
+  await req.user.save();
 
   return res.status(200).json({
     data: {
-      phoneNumberVerifiedAt: user.phoneNumberVerifiedAt,
+      phoneNumberVerifiedAt: req.user.phoneNumberVerifiedAt,
     },
-    message: `Phone number verified at ${user.phoneNumberVerifiedAt}`,
+    message: `Phone number verified at ${req.user.phoneNumberVerifiedAt}`,
   });
 };
 
-const sendNewOTP = async (req, res) => {};
+const sendNewOTP = async (req, res) => {
+  if (req.user.phoneNumberVerifiedAt) {
+    return res.status(200).json({
+      data: {
+        phoneNumberVerifiedAt: req.user.phoneNumberVerifiedAt,
+      },
+      message: [
+        'Phone number is already verified',
+        `Phone number verified at ${req.user.phoneNumberVerifiedAt}`,
+      ],
+    });
+  }
+
+  // delete previous otp token if exists
+  if (await PhoneNumberVerification.exists({ userId: req.user._id })) {
+    await PhoneNumberVerification.deleteOne({ userId: req.user._id });
+  }
+
+  const otp = await prepareVerificationSMS(req.user._id);
+
+  sendOTP({
+    to: req.user.phoneNumber,
+    otp,
+  });
+
+  return res.status(200).json({
+    data: {},
+    message: `Verification code sent to ${req.user.phoneNumber}`,
+  });
+};
 
 module.exports = {
   signUp,
   verifyEmail,
   sendNewEmail,
   verifyPhoneNumber,
+  sendNewOTP,
 };

@@ -10,6 +10,11 @@ const EmailVerificationSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  createdAt: {
+    type: Date,
+    required: true,
+    default: Date.now,
+  },
 });
 
 const EmailVerification = mongoose.model(
