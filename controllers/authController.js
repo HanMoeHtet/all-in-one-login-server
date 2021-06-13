@@ -17,6 +17,9 @@ const {
   INVALID_EMAIL_VERIFICATION_ID,
   INVALID_PHONE_NUMBER,
   INVALID_USERNAME,
+  INVALID_OAUTH_PROVIDER,
+  UNAUTHORIZED,
+  INVALID_OAUTH_STATE,
 } = require('../constants/errorTypes');
 const {
   checkIfUsernameExists,
@@ -31,6 +34,8 @@ const { sendOTP } = require('../services/smsService');
 const { prepareVerificationMail } = require('../utils/verificationMail');
 const { prepareVerificationSMS } = require('../utils/verificationSMS');
 const { getExpiredDate } = require('../utils/getExpiredDate');
+const axios = require('axios');
+const { prepareOAuthVerification } = require('../utils/oAuthVerification');
 require('dotenv').config();
 
 const signUp = async (req, res) => {
@@ -41,7 +46,27 @@ const signUp = async (req, res) => {
     passwordConfirmation,
     email,
     phoneNumber,
+    oAuthProvider,
   } = req.body;
+
+  if (authType === authTypes.OAUTH) {
+    if (!oAuthProvider) {
+      return res.status(400).json({
+        error: INVALID_OAUTH_PROVIDER,
+        message:
+          'OAuth provider name must be provided and must be a valid one.',
+      });
+    }
+
+    const oAuthConsentUrl = await prepareOAuthVerification();
+
+    return res.status(200).json({
+      data: {
+        oAuthConsentUrl,
+      },
+      message: 'Please follow the OAuth consent screen url and grant access.',
+    });
+  }
 
   if (!username) {
     return res.status(400).json({
@@ -410,10 +435,134 @@ const sendNewOTP = async (req, res) => {
   });
 };
 
+/**
+ * TODO: Protect the route with CORS
+ * TODO: Create user
+ * TODO: Refused to login
+ */
+
+// const clientUrl = `https://github.com/login/oauth/authorize?client_id=&redirect_uri=`;
+
+const signInWithGithub = async (req, res) => {
+  const { error, error_description, error_uri } = req.query;
+  if (error) {
+    return res.status(401).json({
+      error,
+      error_description,
+      error_uri,
+    });
+  }
+
+  const { state, code } = req.query;
+
+  try {
+    jwt.verify(state, secret);
+  } catch (err) {
+    return res.status(403).json({
+      error: INVALID_OAUTH_STATE,
+      message: 'Access denied. Please log in.',
+    });
+  }
+
+  const clientId = process.env.GITHUB_CLIENT_ID;
+  const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+  // const redirectUri = `${process.env.APP_URL}`;
+
+  const exchangeTokenUrl = `https://github.com/login/oauth/access_token?code=${code}&client_id=${clientId}&client_secret=${clientSecret}`;
+  const tokenResponse = await axios.post(
+    exchangeTokenUrl,
+    {},
+    { headers: { Accept: 'application/json ' } }
+  );
+
+  const { access_token, token_type, scope } = tokenResponse.data;
+
+  const url = 'https://api.github.com/user';
+  const response = await axios.get(url, {
+    headers: { Authorization: `${token_type} ${access_token}` },
+  });
+
+  console.log(response.data);
+  return res.status(200).json({
+    tokenResponseData: tokenResponse.data,
+    responseData: response.data,
+  });
+};
+
+// const clientUrl = `https://www.facebook.com/v11.0/dialog/oauth?client_id=&redirect_uri=&state=`
+
+const signInWithFacebook = async (req, res) => {
+  const { error_reason, error, error_description } = req.query;
+
+  if (error) {
+    console.log(err, error_reason, error_description);
+    return res.status(400).json({
+      err,
+      error_reason,
+      error_description,
+    });
+  }
+
+  const { state, code } = req.query;
+
+  const clientId = process.env.FACEBOOK_CLIENT_ID;
+  const clientSecret = process.env.FACEBOOK_CLIENT_SECRET;
+  const redirectUri = `${process.env.APP_URL}/signInWithFacebook`;
+  const exchangeTokenUrl = `https://graph.facebook.com/v11.0/oauth/access_token?client_id=${clientId}&redirect_uri=${redirectUri}&client_secret=${clientSecret}&code=${code}`;
+
+  const exchangeTokenResponse = await axios.get(exchangeTokenUrl);
+  const { access_token, token_type, expires_in } = exchangeTokenResponse.data;
+
+  const url = `https://graph.facebook.com/v11.0/me?access_token=${access_token}&fields=email,name`;
+  let response;
+  try {
+    response = await axios.get(url);
+  } catch (err) {
+    return res.status(400).json(err.response.data);
+  }
+  return res.status(200).json(response.data);
+};
+
+// const clientUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=&redirect_uri=&response_type=code&scope=https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile`;
+
+const signInWithGoogle = async (req, res) => {
+  const { error } = req.query;
+
+  if (error) {
+    console.log(err);
+    return res.status(400).json({
+      error,
+    });
+  }
+
+  const { code } = req.query;
+
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const redirectUri = `${process.env.APP_URL}/signInWithGoogle`;
+  const exchangeTokenUrl = `https://oauth2.googleapis.com/token?code=${code}&client_id=${clientId}&client_secret=${clientSecret}&redirect_uri=${redirectUri}&grant_type=authorization_code`;
+
+  const exchangeTokenResponse = await axios.post(exchangeTokenUrl);
+
+  const { access_token, token_type, scope, expires_in } =
+    exchangeTokenResponse.data;
+
+  const url = 'https://www.googleapis.com/oauth2/v2/userinfo';
+  const response = await axios.get(url, {
+    headers: { Authorization: `${token_type} ${access_token}` },
+  });
+
+  console.log(response.data);
+  return res.status(200).json(response.data);
+};
+
 module.exports = {
   signUp,
   verifyEmail,
   sendNewEmail,
   verifyPhoneNumber,
   sendNewOTP,
+  signInWithGithub,
+  signInWithFacebook,
+  signInWithGoogle,
 };
