@@ -1,4 +1,3 @@
-require('dotenv').config();
 const bcrypt = require('bcrypt');
 const EmailVerification = require('../models/EmailVerification');
 const jwt = require('jsonwebtoken');

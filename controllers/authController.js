@@ -21,11 +21,15 @@ const {
   UNAUTHORIZED,
   INVALID_OAUTH_STATE,
 } = require('../constants/errorTypes');
+
 const {
   checkIfUsernameExists,
   checkIfEmailExists,
   checkIfPhoneNumberExists,
-} = require('../utils/db');
+  getRandomString,
+  prepareUserResponseData,
+} = require('../utils/user');
+
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const EmailVerification = require('../models/EmailVerification');
@@ -36,7 +40,6 @@ const { prepareVerificationSMS } = require('../utils/verificationSMS');
 const { getExpiredDate } = require('../utils/getExpiredDate');
 const axios = require('axios');
 const { prepareOAuthVerification } = require('../utils/oAuthVerification');
-require('dotenv').config();
 
 const signUp = async (req, res) => {
   const {
@@ -58,7 +61,7 @@ const signUp = async (req, res) => {
       });
     }
 
-    const oAuthConsentUrl = await prepareOAuthVerification();
+    const oAuthConsentUrl = await prepareOAuthVerification(oAuthProvider);
 
     return res.status(200).json({
       data: {
@@ -139,7 +142,7 @@ const signUp = async (req, res) => {
     });
 
     return res.status(200).json({
-      data: user,
+      data: prepareUserResponseData(user),
       message: [
         'User successfully created.',
         `Verification email sent to ${email}`,
@@ -192,7 +195,7 @@ const signUp = async (req, res) => {
     sendOTP({ to: phoneNumber, otp });
 
     return res.status(200).json({
-      data: user,
+      data: prepareUserResponseData(user),
       message: [
         'User successfully created.',
         `Verification code sent to ${phoneNumber}`,
@@ -456,6 +459,7 @@ const signInWithGithub = async (req, res) => {
   const { state, code } = req.query;
 
   try {
+    const secret = process.env.APP_SECRET;
     jwt.verify(state, secret);
   } catch (err) {
     return res.status(403).json({
@@ -469,23 +473,70 @@ const signInWithGithub = async (req, res) => {
   // const redirectUri = `${process.env.APP_URL}`;
 
   const exchangeTokenUrl = `https://github.com/login/oauth/access_token?code=${code}&client_id=${clientId}&client_secret=${clientSecret}`;
-  const tokenResponse = await axios.post(
-    exchangeTokenUrl,
-    {},
-    { headers: { Accept: 'application/json ' } }
-  );
+  let tokenResponse;
+  try {
+    tokenResponse = await axios.post(
+      exchangeTokenUrl,
+      {},
+      { headers: { Accept: 'application/json ' } }
+    );
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({
+      error: UNKNOWN_ERROR,
+      message: 'An error ocurred.',
+    });
+  }
 
   const { access_token, token_type, scope } = tokenResponse.data;
 
   const url = 'https://api.github.com/user';
-  const response = await axios.get(url, {
-    headers: { Authorization: `${token_type} ${access_token}` },
+  let response;
+  try {
+    response = await axios.get(url, {
+      headers: { Authorization: `${token_type} ${access_token}` },
+    });
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({
+      error: UNKNOWN_ERROR,
+      message: 'An error ocurred.',
+    });
+  }
+
+  let { login: username, email, avatar_url: avatar } = response.data;
+
+  if (await User.exists({ username })) {
+    username += getRandomString();
+  }
+
+  const user = new User({
+    username,
+    oAuthAccessToken: access_token,
+    oAuthTokenType: token_type,
   });
 
-  console.log(response.data);
+  if (email) {
+    user.email = email;
+  }
+
+  if (avatar) {
+    user.avatar = avatar;
+  }
+
+  try {
+    await user.save();
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({
+      error: UNKNOWN_ERROR,
+      message: 'An error ocurred.',
+    });
+  }
+
   return res.status(200).json({
-    tokenResponseData: tokenResponse.data,
-    responseData: response.data,
+    data: prepareUserResponseData(user),
+    message: 'User successfully created.',
   });
 };
 
