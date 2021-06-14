@@ -1,7 +1,9 @@
 const express = require('express');
-const { validateUsername,
+const {
+  validateUsername,
   validateEmail,
-  validatePhoneNumber } = require('../controllers/validationController');
+  validatePhoneNumber,
+} = require('../controllers/validationController');
 const router = express.Router();
 
 router.post('/validateUsername', validateUsername);
