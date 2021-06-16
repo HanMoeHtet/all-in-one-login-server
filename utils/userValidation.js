@@ -119,9 +119,21 @@ const validatePasswordConfirmation = (
   return [isValid, messages];
 };
 
+const validatePhoneNumber = (phoneNumber, { required = false } = {}) => {
+  let isValid = true;
+  const messages = [];
+  if (required && phoneNumber.length === 0) {
+    isValid = false;
+    messages.push('Password is required.');
+  }
+
+  return [isValid, messages];
+};
+
 module.exports = {
   validateUsername,
   validateEmail,
   validatePassword,
   validatePasswordConfirmation,
+  validatePhoneNumber,
 };

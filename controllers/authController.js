@@ -45,6 +45,7 @@ const {
   validatePassword,
   validatePasswordConfirmation,
   validateEmail,
+  validatePhoneNumber,
 } = require('../utils/userValidation');
 
 const signUp = async (req, res) => {
@@ -77,124 +78,6 @@ const signUp = async (req, res) => {
     });
   }
 
-  if (!username) {
-    return res.status(400).json({
-      error: INVALID_USERNAME,
-      message: 'Username must be provided and must be a valid name',
-    });
-  }
-
-  if (await checkIfUsernameExists(username)) {
-    return res.status(409).json({
-      error: DUPLICATE_USERNAME,
-      message: 'A user with that username already exists.',
-    });
-  }
-
-  if (!password) {
-    return res.status(400).json({
-      error: INVALID_PASSWORD,
-      message: 'Password must be provided and must be valid',
-    });
-  }
-
-  if (password !== passwordConfirmation) {
-    return res.status(400).json({
-      error: PASSWORDS_MISMATCH,
-      message: 'Password and confirmed password are not equal.',
-    });
-  }
-
-  const salt = await bcrypt.genSalt();
-  const hash = await bcrypt.hash(password, salt);
-
-  if (authType === authTypes.EMAIL) {
-    const user = new User({
-      username,
-      email,
-      salt,
-      hash,
-    });
-
-    try {
-      await user.save();
-    } catch (err) {
-      console.log(err);
-      return res.status(500).json({
-        error: UNKNOWN_ERROR,
-        message: 'An error occurred. Please try again.',
-      });
-    }
-
-    const verificationEndPoint = await prepareVerificationMail(user._id);
-
-    sendVerificationMail({
-      to: email,
-      verificationEndPoint,
-    });
-
-    return res.status(200).json({
-      data: prepareUserResponseData(user),
-      message: [
-        'User successfully created.',
-        `Verification email sent to ${email}`,
-      ],
-    });
-  }
-
-  if (authType === authTypes.PHONE_NUMBER) {
-    if (!phoneNumber) {
-      return res.status(400).json({
-        error: INVALID_PHONE_NUMBER,
-        message: 'Phone number must be provided and must be a valid number',
-      });
-    }
-
-    if (await checkIfPhoneNumberExists(phoneNumber)) {
-      return res.status(409).json({
-        error: DUPLICATE_PHONE_NUMBER,
-        message: 'A User with that phone number already exists.',
-      });
-    }
-
-    const user = new User({
-      username,
-      phoneNumber,
-      salt,
-      hash,
-    });
-
-    try {
-      await user.save();
-    } catch (err) {
-      return res.status(500).json({
-        error: UNKNOWN_ERROR,
-        message: 'An error occurred.',
-      });
-    }
-
-    let otp;
-    try {
-      otp = await prepareVerificationSMS(user._id);
-    } catch (err) {
-      console.log(err);
-      return res.status(500).json({
-        error: UNKNOWN_ERROR,
-        message: 'An error occurred.',
-      });
-    }
-
-    sendOTP({ to: phoneNumber, otp });
-
-    return res.status(200).json({
-      data: prepareUserResponseData(user),
-      message: [
-        'User successfully created.',
-        `Verification code sent to ${phoneNumber}`,
-      ],
-    });
-  }
-
   return res.status(404);
 };
 
@@ -214,7 +97,7 @@ const signUpWithEmail = async (req, res) => {
     errors.username.push(...messages);
   } else {
     let exists;
-    [exists, messages] = await checkIfUsernameExists(email);
+    [exists, messages] = await checkIfUsernameExists(username);
     if (exists) errors.username.push(...messages);
   }
 
@@ -268,9 +151,6 @@ const signUpWithEmail = async (req, res) => {
     return res.status(500);
   }
 
-  const secret = process.env.APP_SECRET;
-  const token = jwt.sign({ userId: user._id }, secret);
-
   const verificationEndPoint = await prepareVerificationMail(user._id);
 
   sendVerificationMail({
@@ -278,20 +158,25 @@ const signUpWithEmail = async (req, res) => {
     verificationEndPoint,
   });
 
+  const secret = process.env.APP_SECRET;
+  const token = jwt.sign({ userId: user._id }, secret);
+
   return res.status(200).json({
     data: {
-      user: prepareUserResponseData(user),
-      token,
+      email: user.email,
     },
   });
 };
 
 const signUpWithPhoneNumber = async (req, res) => {
-  const { username, password, passwordConfirmation, phoneNumber, countryCode } = req.body;
+  let { username, password, passwordConfirmation, phoneNumber, countryCode } =
+    req.body;
+
+  phoneNumber = countryCode + phoneNumber;
 
   const errors = {
     username: [],
-    email: [],
+    phoneNumber: [],
     password: [],
     passwordConfirmation: [],
   };
@@ -302,7 +187,7 @@ const signUpWithPhoneNumber = async (req, res) => {
     errors.username.push(...messages);
   } else {
     let exists;
-    [exists, messages] = await checkIfUsernameExists(email);
+    [exists, messages] = await checkIfUsernameExists(username);
     if (exists) errors.username.push(...messages);
   }
 
@@ -324,14 +209,14 @@ const signUpWithPhoneNumber = async (req, res) => {
     errors.passwordConfirmation.push(...messages);
   }
 
-  [isValid, messages] = validateEmail(email, { required: true });
+  [isValid, messages] = validatePhoneNumber(phoneNumber, { required: true });
 
   if (!isValid) {
-    errors.email.push(...messages);
+    errors.phoneNumber.push(...messages);
   } else {
     let exists;
-    [exists, messages] = await checkIfEmailExists(email);
-    if (exists) errors.email.push(...messages);
+    [exists, messages] = await checkIfPhoneNumberExists(phoneNumber);
+    if (exists) errors.phoneNumber.push(...messages);
   }
 
   if (!isValid) {
@@ -345,7 +230,7 @@ const signUpWithPhoneNumber = async (req, res) => {
 
   const user = new User({
     username,
-    email,
+    phoneNumber,
     hash,
   });
 
@@ -356,20 +241,23 @@ const signUpWithPhoneNumber = async (req, res) => {
     return res.status(500);
   }
 
-  const secret = process.env.APP_SECRET;
-  const token = jwt.sign({ userId: user._id }, secret);
+  let otp;
+  try {
+    otp = await prepareVerificationSMS(user._id);
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({
+      error: UNKNOWN_ERROR,
+      message: 'An error occurred.',
+    });
+  }
 
-  const verificationEndPoint = await prepareVerificationMail(user._id);
-
-  sendVerificationMail({
-    to: email,
-    verificationEndPoint,
-  });
+  sendOTP({ to: phoneNumber, otp });
 
   return res.status(200).json({
     data: {
-      user: prepareUserResponseData(user),
-      token,
+      userId: user._id,
+      phoneNumber: user.phoneNumber,
     },
   });
 };
@@ -503,7 +391,8 @@ const sendNewEmail = async (req, res) => {
 };
 
 const verifyPhoneNumber = async (req, res) => {
-  const { otp } = req.body;
+  const { otp, userId } = req.body;
+  console.log(userId);
 
   if (!otp) {
     return res.status(400).json({
@@ -514,7 +403,7 @@ const verifyPhoneNumber = async (req, res) => {
   }
 
   const phoneNumberVerification = await PhoneNumberVerification.findOne({
-    userId: req.user._id,
+    userId,
   });
 
   if (!phoneNumberVerification) {
@@ -531,7 +420,7 @@ const verifyPhoneNumber = async (req, res) => {
   );
 
   if (expiredDate.getTime() < Date.now()) {
-    await EmailVerification.deleteOne({
+    await PhoneNumberVerification.deleteOne({
       _id: phoneNumberVerification._id,
     });
 
@@ -564,14 +453,21 @@ const verifyPhoneNumber = async (req, res) => {
     _id: phoneNumberVerification._id,
   });
 
-  req.user.phoneNumberVerifiedAt = Date.now();
-  await req.user.save();
+  const user = await User.findOne({
+    _id: userId,
+  });
+
+  user.phoneNumberVerifiedAt = Date.now();
+  await user.save();
+
+  const secret = process.env.APP_SECRET;
+  const token = jwt.sign({ userId: user._id }, secret);
 
   return res.status(200).json({
     data: {
-      phoneNumberVerifiedAt: req.user.phoneNumberVerifiedAt,
+      user: prepareUserResponseData(user),
+      token,
     },
-    message: `Phone number verified at ${req.user.phoneNumberVerifiedAt}`,
   });
 };
 
@@ -778,7 +674,7 @@ const signInWithGoogle = async (req, res) => {
 module.exports = {
   signUp,
   signUpWithEmail,
-  signUpWithPhoneNumber
+  signUpWithPhoneNumber,
   verifyEmail,
   sendNewEmail,
   verifyPhoneNumber,

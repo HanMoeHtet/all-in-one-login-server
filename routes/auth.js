@@ -19,7 +19,7 @@ router.post('/signUpWithEmail', signUpWithEmail);
 router.post('/signUpWithPhoneNumber', signUpWithPhoneNumber);
 router.get('/verifyEmail', verifyEmail);
 router.get('/sendNewEmail', authMiddleware, sendNewEmail);
-router.post('/verifyPhoneNumber', authMiddleware, verifyPhoneNumber);
+router.post('/verifyPhoneNumber', verifyPhoneNumber);
 router.get('/sendNewOTP', authMiddleware, sendNewOTP);
 
 router.get('/signInWithGithub', signInWithGithub);

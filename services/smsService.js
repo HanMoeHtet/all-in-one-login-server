@@ -12,7 +12,6 @@ const sendSMS = async ({ to, message }) => {
       from: twilioPhoneNumber,
       to,
     });
-    console.log(response);
   } catch (err) {
     console.log(err);
   }
