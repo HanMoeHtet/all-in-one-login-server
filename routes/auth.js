@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const {
   signUp,
+  signUpWithEmail,
+  signUpWithPhoneNumber,
   verifyEmail,
   sendNewEmail,
   verifyPhoneNumber,
@@ -13,6 +15,8 @@ const {
 const { authMiddleware } = require('../middlewares/authMiddleware');
 
 router.post('/signUp', signUp);
+router.post('/signUpWithEmail', signUpWithEmail);
+router.post('/signUpWithPhoneNumber', signUpWithPhoneNumber);
 router.get('/verifyEmail', verifyEmail);
 router.get('/sendNewEmail', authMiddleware, sendNewEmail);
 router.post('/verifyPhoneNumber', authMiddleware, verifyPhoneNumber);

@@ -1,21 +1,39 @@
 const User = require('../models/User');
 
 const checkIfUsernameExists = async (username) => {
-  return await User.exists({
-    username,
-  });
+  if (
+    await User.exists({
+      username,
+    })
+  ) {
+    return [true, ['A user with that username exists.']];
+  }
+
+  return [false, []];
 };
 
 const checkIfEmailExists = async (email) => {
-  return await User.exists({
-    email,
-  });
+  if (
+    await User.exists({
+      email,
+    })
+  ) {
+    return [true, ['A user with that email exists.']];
+  }
+
+  return [false, []];
 };
 
 const checkIfPhoneNumberExists = async (phoneNumber) => {
-  return await User.exists({
-    phoneNumber,
-  });
+  if (
+    await User.exists({
+      phoneNumber,
+    })
+  ) {
+    return [true, ['A user with that phone number exists.']];
+  }
+
+  return [false, []];
 };
 
 const getRandomString = (length = 3) => {

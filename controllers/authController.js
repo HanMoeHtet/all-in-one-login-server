@@ -40,6 +40,12 @@ const { prepareVerificationSMS } = require('../utils/verificationSMS');
 const { getExpiredDate } = require('../utils/getExpiredDate');
 const axios = require('axios');
 const { prepareOAuthVerification } = require('../utils/oAuthVerification');
+const {
+  validateUsername,
+  validatePassword,
+  validatePasswordConfirmation,
+  validateEmail,
+} = require('../utils/userValidation');
 
 const signUp = async (req, res) => {
   const {
@@ -74,7 +80,7 @@ const signUp = async (req, res) => {
   if (!username) {
     return res.status(400).json({
       error: INVALID_USERNAME,
-      message: 'Usernaem must be provided and must be a valid name',
+      message: 'Username must be provided and must be a valid name',
     });
   }
 
@@ -103,20 +109,6 @@ const signUp = async (req, res) => {
   const hash = await bcrypt.hash(password, salt);
 
   if (authType === authTypes.EMAIL) {
-    if (!email) {
-      return res.status(400).json({
-        error: INVALID_EMAIL,
-        message: 'Email must be provided and must be a valid address.',
-      });
-    }
-
-    if (await checkIfEmailExists(email)) {
-      return res.status(409).json({
-        error: DUPLICATE_EMAIL,
-        message: 'A user with that email already exists.',
-      });
-    }
-
     const user = new User({
       username,
       email,
@@ -204,6 +196,182 @@ const signUp = async (req, res) => {
   }
 
   return res.status(404);
+};
+
+const signUpWithEmail = async (req, res) => {
+  const { username, password, passwordConfirmation, email } = req.body;
+
+  const errors = {
+    username: [],
+    email: [],
+    password: [],
+    passwordConfirmation: [],
+  };
+
+  let [isValid, messages] = validateUsername(username, { required: true });
+
+  if (!isValid) {
+    errors.username.push(...messages);
+  } else {
+    let exists;
+    [exists, messages] = await checkIfUsernameExists(email);
+    if (exists) errors.username.push(...messages);
+  }
+
+  [isValid, messages] = validatePassword(password, { required: true });
+
+  if (!isValid) {
+    errors.password.push(...messages);
+  }
+
+  [isValid, messages] = validatePasswordConfirmation(
+    passwordConfirmation,
+    password,
+    {
+      required: true,
+    }
+  );
+
+  if (!isValid) {
+    errors.passwordConfirmation.push(...messages);
+  }
+
+  [isValid, messages] = validateEmail(email, { required: true });
+
+  if (!isValid) {
+    errors.email.push(...messages);
+  } else {
+    let exists;
+    [exists, messages] = await checkIfEmailExists(email);
+    if (exists) errors.email.push(...messages);
+  }
+
+  if (!isValid) {
+    return res.status(400).json({
+      errors,
+    });
+  }
+
+  const salt = await bcrypt.genSalt();
+  const hash = await bcrypt.hash(password, salt);
+
+  const user = new User({
+    username,
+    email,
+    hash,
+  });
+
+  try {
+    await user.save();
+  } catch (err) {
+    console.log(err);
+    return res.status(500);
+  }
+
+  const secret = process.env.APP_SECRET;
+  const token = jwt.sign({ userId: user._id }, secret);
+
+  const verificationEndPoint = await prepareVerificationMail(user._id);
+
+  sendVerificationMail({
+    to: email,
+    verificationEndPoint,
+  });
+
+  return res.status(200).json({
+    data: {
+      user: prepareUserResponseData(user),
+      token,
+    },
+  });
+};
+
+const signUpWithPhoneNumber = async (req, res) => {
+  const { username, password, passwordConfirmation, phoneNumber, countryCode } = req.body;
+
+  const errors = {
+    username: [],
+    email: [],
+    password: [],
+    passwordConfirmation: [],
+  };
+
+  let [isValid, messages] = validateUsername(username, { required: true });
+
+  if (!isValid) {
+    errors.username.push(...messages);
+  } else {
+    let exists;
+    [exists, messages] = await checkIfUsernameExists(email);
+    if (exists) errors.username.push(...messages);
+  }
+
+  [isValid, messages] = validatePassword(password, { required: true });
+
+  if (!isValid) {
+    errors.password.push(...messages);
+  }
+
+  [isValid, messages] = validatePasswordConfirmation(
+    passwordConfirmation,
+    password,
+    {
+      required: true,
+    }
+  );
+
+  if (!isValid) {
+    errors.passwordConfirmation.push(...messages);
+  }
+
+  [isValid, messages] = validateEmail(email, { required: true });
+
+  if (!isValid) {
+    errors.email.push(...messages);
+  } else {
+    let exists;
+    [exists, messages] = await checkIfEmailExists(email);
+    if (exists) errors.email.push(...messages);
+  }
+
+  if (!isValid) {
+    return res.status(400).json({
+      errors,
+    });
+  }
+
+  const salt = await bcrypt.genSalt();
+  const hash = await bcrypt.hash(password, salt);
+
+  const user = new User({
+    username,
+    email,
+    hash,
+  });
+
+  try {
+    await user.save();
+  } catch (err) {
+    console.log(err);
+    return res.status(500);
+  }
+
+  const secret = process.env.APP_SECRET;
+  const token = jwt.sign({ userId: user._id }, secret);
+
+  const verificationEndPoint = await prepareVerificationMail(user._id);
+
+  sendVerificationMail({
+    to: email,
+    verificationEndPoint,
+  });
+
+  return res.status(200).json({
+    data: {
+      user: prepareUserResponseData(user),
+      token,
+    },
+  });
 };
 
 const verifyEmail = async (req, res) => {
@@ -609,6 +777,8 @@ const signInWithGoogle = async (req, res) => {
 
 module.exports = {
   signUp,
+  signUpWithEmail,
+  signUpWithPhoneNumber
   verifyEmail,
   sendNewEmail,
   verifyPhoneNumber,

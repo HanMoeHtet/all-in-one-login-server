@@ -40,7 +40,6 @@ const UserSchema = new mongoose.Schema({
     required: true,
     default: Date.now,
   },
-  salt: { type: String, required: false },
   hash: { type: String, required: false },
 });
 
