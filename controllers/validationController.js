@@ -1,12 +1,15 @@
-const { checkIfUsernameExists, checkIfEmailExists } = require('../utils/user');
 const {
+  checkIfUsernameExists,
+  checkIfEmailExists,
+  checkIfPhoneNumberExists,
   validateUsername: validateUsernameHelper,
   validateEmail: validateEmailHelper,
+  validatePhoneNumber: validatePhoneNumberHelper,
 } = require('../utils/userValidation');
 
 const validateUsername = async (req, res) => {
-  const { username } = req.body;
-  let [isValid, messages] = validateUsernameHelper(username);
+  const { username, required = false } = req.body;
+  let [isValid, messages] = validateUsernameHelper(username, required);
 
   if (!isValid) {
     return res.status(400).json({
@@ -29,9 +32,9 @@ const validateUsername = async (req, res) => {
 };
 
 const validateEmail = async (req, res) => {
-  const { email } = req.body;
+  const { email, required = false } = req.body;
 
-  let [isValid, messages] = validateEmailHelper(email);
+  let [isValid, messages] = validateEmailHelper(email, required);
 
   if (!isValid) {
     return res.status(400).json({
@@ -52,7 +55,26 @@ const validateEmail = async (req, res) => {
 };
 
 const validatePhoneNumber = async (req, res) => {
-  const { phoneNumber } = req.body;
+  const { phoneNumber, required = false } = req.body;
+
+  let [isValid, messages] = validatePhoneNumberHelper(phoneNumber, required);
+
+  if (!isValid) {
+    return res.status(400).json({
+      errors: {
+        phoneNumber: messages,
+      },
+    });
+  }
+
+  let exists;
+  [exists, messages] = await checkIfPhoneNumberExists(phoneNumber);
+
+  if (exists) {
+    return res.status(409).json({ errors: { phoneNumber: messages } });
+  }
+
+  return res.status(204).send();
 };
 
 module.exports = {

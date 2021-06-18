@@ -27,12 +27,13 @@ const UserSchema = new mongoose.Schema({
     type: Date,
     required: false,
   },
-  oAuthAccessToken: {
-    type: String,
-    required: false,
-  },
-  oAuthTokenType: {
-    type: String,
+  oAuth: {
+    type: {
+      id: String,
+      provider: String,
+      accessToken: String,
+      tokenType: String,
+    },
     required: false,
   },
   createdAt: {

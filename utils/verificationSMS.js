@@ -1,9 +1,12 @@
-const PhoneNumberVerification = require('../models/PhoneNumberVerification');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
+const PhoneNumberVerification = require('../models/PhoneNumberVerification');
+
+const OTP_LENGTH = 6;
+
 const prepareVerificationSMS = async (userId) => {
-  const otp = Array(6)
+  const otp = Array(OTP_LENGTH)
     .fill(0)
     .map((_) => Math.floor(Math.random() * 10))
     .join('');
@@ -15,7 +18,12 @@ const prepareVerificationSMS = async (userId) => {
     secret,
   });
 
-  await phoneNumberVerification.save();
+  try {
+    await phoneNumberVerification.save();
+  } catch (err) {
+    console.log(err);
+    throw Error();
+  }
 
   return otp;
 };

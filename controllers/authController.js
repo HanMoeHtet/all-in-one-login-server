@@ -1,133 +1,33 @@
-const authTypes = require('../constants/authTypes');
-const { sendVerificationMail } = require('../services/mailService');
-const User = require('../models/User');
-const {
-  DUPLICATE_USERNAME,
-  DUPLICATE_EMAIL,
-  INVALID_EMAIL,
-  INVALID_PASSWORD,
-  PASSWORDS_MISMATCH,
-  INVALID_EMAIL_VERIFICATION_TOKEN,
-  UNKNOWN_ERROR,
-  EMAIL_VERIFICATION_TOKEN_EXPIRED,
-  DUPLICATE_PHONE_NUMBER,
-  INVALID_PHONE_NUMBER_VERIFICATION_TOKEN,
-  INCORRECT_OTP,
-  INVALID_USER_ID,
-  INVALID_EMAIL_VERIFICATION_ID,
-  INVALID_PHONE_NUMBER,
-  INVALID_USERNAME,
-  INVALID_OAUTH_PROVIDER,
-  UNAUTHORIZED,
-  INVALID_OAUTH_STATE,
-} = require('../constants/errorTypes');
-
-const {
-  checkIfUsernameExists,
-  checkIfEmailExists,
-  checkIfPhoneNumberExists,
-  getRandomString,
-  prepareUserResponseData,
-} = require('../utils/user');
-
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const EmailVerification = require('../models/EmailVerification');
-const PhoneNumberVerification = require('../models/PhoneNumberVerification');
+
+const User = require('../models/User');
+
+const { sendVerificationMail } = require('../services/mailService');
 const { sendOTP } = require('../services/smsService');
+
 const { prepareVerificationMail } = require('../utils/verificationMail');
 const { prepareVerificationSMS } = require('../utils/verificationSMS');
-const { getExpiredDate } = require('../utils/getExpiredDate');
-const axios = require('axios');
+const { getRandomString, prepareUserResponseData } = require('../utils/user');
 const { prepareOAuthVerification } = require('../utils/oAuthVerification');
 const {
-  validateUsername,
-  validatePassword,
-  validatePasswordConfirmation,
-  validateEmail,
-  validatePhoneNumber,
+  validateEmailSignUp,
+  validatePhoneNumberSignUp,
 } = require('../utils/userValidation');
 
-const signUp = async (req, res) => {
-  const {
-    authType,
-    username,
-    password,
-    passwordConfirmation,
-    email,
-    phoneNumber,
-    oAuthProvider,
-  } = req.body;
+const axios = require('axios');
 
-  if (authType === authTypes.OAUTH) {
-    if (!oAuthProvider) {
-      return res.status(400).json({
-        error: INVALID_OAUTH_PROVIDER,
-        message:
-          'OAuth provider name must be provided and must be a valid one.',
-      });
-    }
-
-    const oAuthConsentUrl = await prepareOAuthVerification(oAuthProvider);
-
-    return res.status(200).json({
-      data: {
-        oAuthConsentUrl,
-      },
-      message: 'Please follow the OAuth consent screen url and grant access.',
-    });
-  }
-
-  return res.status(404);
-};
+const secret = process.env.APP_SECRET;
 
 const signUpWithEmail = async (req, res) => {
   const { username, password, passwordConfirmation, email } = req.body;
 
-  const errors = {
-    username: [],
-    email: [],
-    password: [],
-    passwordConfirmation: [],
-  };
-
-  let [isValid, messages] = validateUsername(username, { required: true });
-
-  if (!isValid) {
-    errors.username.push(...messages);
-  } else {
-    let exists;
-    [exists, messages] = await checkIfUsernameExists(username);
-    if (exists) errors.username.push(...messages);
-  }
-
-  [isValid, messages] = validatePassword(password, { required: true });
-
-  if (!isValid) {
-    errors.password.push(...messages);
-  }
-
-  [isValid, messages] = validatePasswordConfirmation(
-    passwordConfirmation,
+  const [isValid, errors] = await validateEmailSignUp({
+    username,
     password,
-    {
-      required: true,
-    }
-  );
-
-  if (!isValid) {
-    errors.passwordConfirmation.push(...messages);
-  }
-
-  [isValid, messages] = validateEmail(email, { required: true });
-
-  if (!isValid) {
-    errors.email.push(...messages);
-  } else {
-    let exists;
-    [exists, messages] = await checkIfEmailExists(email);
-    if (exists) errors.email.push(...messages);
-  }
+    passwordConfirmation,
+    email,
+  });
 
   if (!isValid) {
     return res.status(400).json({
@@ -148,21 +48,23 @@ const signUpWithEmail = async (req, res) => {
     await user.save();
   } catch (err) {
     console.log(err);
-    return res.status(500);
+    return res.status(500).end();
   }
 
-  const verificationEndPoint = await prepareVerificationMail(user._id);
-
-  sendVerificationMail({
-    to: email,
-    verificationEndPoint,
-  });
-
-  const secret = process.env.APP_SECRET;
-  const token = jwt.sign({ userId: user._id }, secret);
+  try {
+    const verificationEndPoint = await prepareVerificationMail(user._id);
+    sendVerificationMail({
+      to: email,
+      verificationEndPoint,
+      username: user.username,
+    });
+  } catch (err) {
+    return res.status(500).end();
+  }
 
   return res.status(200).json({
     data: {
+      userId: user._id,
       email: user.email,
     },
   });
@@ -174,50 +76,13 @@ const signUpWithPhoneNumber = async (req, res) => {
 
   phoneNumber = countryCode + phoneNumber;
 
-  const errors = {
-    username: [],
-    phoneNumber: [],
-    password: [],
-    passwordConfirmation: [],
-  };
-
-  let [isValid, messages] = validateUsername(username, { required: true });
-
-  if (!isValid) {
-    errors.username.push(...messages);
-  } else {
-    let exists;
-    [exists, messages] = await checkIfUsernameExists(username);
-    if (exists) errors.username.push(...messages);
-  }
-
-  [isValid, messages] = validatePassword(password, { required: true });
-
-  if (!isValid) {
-    errors.password.push(...messages);
-  }
-
-  [isValid, messages] = validatePasswordConfirmation(
-    passwordConfirmation,
+  const [isValid, errors] = await validatePhoneNumberSignUp({
+    username,
     password,
-    {
-      required: true,
-    }
-  );
-
-  if (!isValid) {
-    errors.passwordConfirmation.push(...messages);
-  }
-
-  [isValid, messages] = validatePhoneNumber(phoneNumber, { required: true });
-
-  if (!isValid) {
-    errors.phoneNumber.push(...messages);
-  } else {
-    let exists;
-    [exists, messages] = await checkIfPhoneNumberExists(phoneNumber);
-    if (exists) errors.phoneNumber.push(...messages);
-  }
+    passwordConfirmation,
+    phoneNumber,
+    countryCode,
+  });
 
   if (!isValid) {
     return res.status(400).json({
@@ -238,21 +103,17 @@ const signUpWithPhoneNumber = async (req, res) => {
     await user.save();
   } catch (err) {
     console.log(err);
-    return res.status(500);
+    return res.status(500).end();
   }
 
-  let otp;
   try {
-    otp = await prepareVerificationSMS(user._id);
+    const otp = await prepareVerificationSMS(user._id);
+    sendOTP({ to: phoneNumber, otp });
   } catch (err) {
-    console.log(err);
-    return res.status(500).json({
-      error: UNKNOWN_ERROR,
-      message: 'An error occurred.',
-    });
+    return res.status(500).end();
   }
 
-  sendOTP({ to: phoneNumber, otp });
+  const jwtToken = jwt.sign({ userId: user._id }, secret);
 
   return res.status(200).json({
     data: {
@@ -264,6 +125,15 @@ const signUpWithPhoneNumber = async (req, res) => {
 
 const signInWithOAuth = async (req, res) => {
   const { oAuthProvider } = req.body;
+
+  if (!oAuthProvider) {
+    return res.status(400).json({
+      errors: {
+        oAuthProvider: ['Oauth provider is required.'],
+      },
+    });
+  }
+
   const oAuthConsentUrl = await prepareOAuthVerification(oAuthProvider);
 
   return res.status(200).json({
@@ -273,270 +143,32 @@ const signInWithOAuth = async (req, res) => {
   });
 };
 
-const verifyEmail = async (req, res) => {
-  const { token } = req.body;
-  let userId;
-  try {
-    ({ userId } = jwt.decode(token));
-    if (!userId) throw new Error();
-  } catch (err) {
-    console.log(err);
-    return res.status(400).json({
-      error: INVALID_EMAIL_VERIFICATION_TOKEN,
-      message:
-        'Token for email verification is invalid. Make sure you have provided a valid email address and check your inbox again.',
-    });
-  }
-
-  let user = await User.findOne({
-    _id: userId,
-  });
-  console.log(user);
-  if (!user) {
-    console.log('userId: ', userId);
-    return res.status(400).json({
-      error: INVALID_EMAIL_VERIFICATION_ID,
-      message:
-        'Email verification is invalid. Make sure you have provided a valid email address and check your inbox again.',
-    });
-  }
-
-  if (user.emailVerifiedAt) {
-    return res.status(200).json({
-      data: {
-        emailVerifiedAt: user.emailVerifiedAt,
-      },
-      message: [
-        'Email is already verified',
-        `Email verified at ${user.emailVerifiedAt}`,
-      ],
-    });
-  }
-
-  let emailVerification;
-  try {
-    emailVerification = await EmailVerification.findOne({
-      userId,
-    });
-    if (!emailVerification) throw Error();
-  } catch (err) {
-    console.log(err);
-    return res.status(400).json({
-      error: INVALID_EMAIL_VERIFICATION_ID,
-      message:
-        'Email verification is invalid. Make sure you have provided a valid email address and check your inbox again.',
-    });
-  }
-
-  const expiredDate = getExpiredDate(
-    emailVerification.verifiedAt,
-    1 * 24 * 60 * 60 * 1000
-  );
-
-  if (expiredDate.getTime() < Date.now()) {
-    await EmailVerification.deleteOne({
-      _id: emailVerification._id,
-    });
-
-    return res.status(410).json({
-      error: EMAIL_VERIFICATION_TOKEN_EXPIRED,
-      message: `Token for email verification expired at ${err.expiredAt}.`,
-    });
-  }
-
-  const secret = process.env.APP_SECRET;
-  try {
-    jwt.verify(token, secret);
-  } catch (err) {
-    console.log(err);
-    return res.status(400).json({
-      error: INVALID_EMAIL_VERIFICATION_TOKEN,
-      message:
-        'Token for email verification is invalid. Make sure you have provided a valid email address and check your inbox again.',
-    });
-  }
-
-  await EmailVerification.deleteOne({
-    _id: emailVerification._id,
-  });
-
-  user.emailVerifiedAt = Date.now();
-  await user.save();
-
-  const jwtToken = jwt.sign({ userId: user._id }, secret);
-
-  return res.status(200).json({
-    data: {
-      user: prepareUserResponseData(user),
-      token: jwtToken,
-    },
-  });
-};
-
-const sendNewEmail = async (req, res) => {
-  if (req.user.emailVerifiedAt) {
-    return res.status(200).json({
-      data: {
-        emailVerifiedAt: req.user.emailVerifiedAt,
-      },
-      message: [
-        'Email is already verified',
-        `Email verified at ${req.user.emailVerifiedAt}`,
-      ],
-    });
-  }
-
-  // delete previous email token if exists
-  if (await EmailVerification.exists({ userId: req.user._id })) {
-    await EmailVerification.deleteOne({ userId: req.user._id });
-  }
-
-  const verificationEndPoint = await prepareVerificationMail(req.user._id);
-
-  sendVerificationMail({
-    to: req.user.email,
-    verificationEndPoint,
-  });
-
-  return res.status(200).json({
-    data: {},
-    message: `Verification email sent to ${req.user.email}`,
-  });
-};
-
-const verifyPhoneNumber = async (req, res) => {
-  const { otp, userId } = req.body;
-  console.log(userId);
-
-  if (!otp) {
-    return res.status(400).json({
-      error: INVALID_PHONE_NUMBER_VERIFICATION_TOKEN,
-      message:
-        'Phone number verification is invalid. Make sure you have provided a valid phone number and check your inbox again.',
-    });
-  }
-
-  const phoneNumberVerification = await PhoneNumberVerification.findOne({
-    userId,
-  });
-
-  if (!phoneNumberVerification) {
-    return res.status(400).json({
-      error: INVALID_PHONE_NUMBER_VERIFICATION_TOKEN,
-      message:
-        'Phone number verification is invalid. Make sure you have provided a valid phone number and check your inbox again.',
-    });
-  }
-
-  const expiredDate = getExpiredDate(
-    phoneNumberVerification.createdAt,
-    10 * 60 * 1000
-  );
-
-  if (expiredDate.getTime() < Date.now()) {
-    await PhoneNumberVerification.deleteOne({
-      _id: phoneNumberVerification._id,
-    });
-
-    return res.status(410).json({
-      error: EMAIL_VERIFICATION_TOKEN_EXPIRED,
-      message: `Token for email verification expired at ${err.expiredAt}.`,
-    });
-  }
-
-  let isOtpCorrect;
-  try {
-    isOtpCorrect = await bcrypt.compare(otp, phoneNumberVerification.secret);
-  } catch (err) {
-    console.log(err);
-    return res.status(400).json({
-      error: UNKNOWN_ERROR,
-      message: 'An error ocurred.',
-    });
-  }
-
-  if (!isOtpCorrect) {
-    return res.status(400).json({
-      error: INCORRECT_OTP,
-      message:
-        'OTP is not correct. Please check your inbox again or get a new code.',
-    });
-  }
-
-  await PhoneNumberVerification.deleteOne({
-    _id: phoneNumberVerification._id,
-  });
-
-  const user = await User.findOne({
-    _id: userId,
-  });
-
-  user.phoneNumberVerifiedAt = Date.now();
-  await user.save();
-
-  const secret = process.env.APP_SECRET;
-  const token = jwt.sign({ userId: user._id }, secret);
-
-  return res.status(200).json({
-    data: {
-      user: prepareUserResponseData(user),
-      token,
-    },
-  });
-};
-
-const sendNewOTP = async (req, res) => {
-  if (req.user.phoneNumberVerifiedAt) {
-    return res.status(200).json({
-      data: {
-        phoneNumberVerifiedAt: req.user.phoneNumberVerifiedAt,
-      },
-      message: [
-        'Phone number is already verified',
-        `Phone number verified at ${req.user.phoneNumberVerifiedAt}`,
-      ],
-    });
-  }
-
-  // delete previous otp token if exists
-  if (await PhoneNumberVerification.exists({ userId: req.user._id })) {
-    await PhoneNumberVerification.deleteOne({ userId: req.user._id });
-  }
-
-  const otp = await prepareVerificationSMS(req.user._id);
-
-  sendOTP({
-    to: req.user.phoneNumber,
-    otp,
-  });
-
-  return res.status(200).json({
-    data: {},
-    message: `Verification code sent to ${req.user.phoneNumber}`,
-  });
-};
-
 const signInWithToken = async (req, res) => {
   const { token } = req.body;
 
   let userId;
-  const secret = process.env.APP_SECRET;
   try {
     ({ userId } = jwt.verify(token, secret));
   } catch (err) {
     console.log(err);
-    return res.status(400).send();
+    return res.status(400).json({
+      errors: {
+        token: ['Invalid token.']
+      }
+    });
   }
+
   let user;
   try {
     user = await User.findOne({ _id: userId });
+    if(!user) throw Error();
   } catch (err) {
     console.log(err);
-    return res.status(400).send();
-  }
-
-  if (!user) {
-    return res.status(400).send();
+    return res.status(400).json({
+      errors: {
+        token: ['Invalid token.']
+      }
+    });
   }
 
   return res.status(200).json({
@@ -557,6 +189,11 @@ const logIn = async (req, res) => {
     if (!user) throw Error();
   } catch (err) {
     console.log(err);
+    return res.status(404).json({
+      errors: {
+        username: ['A user with that username does not exists.']
+      }
+    })
   }
 
   let isPasswordCorrect;
@@ -564,13 +201,17 @@ const logIn = async (req, res) => {
     isPasswordCorrect = bcrypt.compare(password, user.hash);
   } catch (err) {
     console.log(err);
+    return res.status(500).end();
   }
 
   if (!isPasswordCorrect) {
-    return res.status(401).send();
+    return res.status(401).json({
+      errors: {
+        password: ['Incorrect password.']
+      }
+    });
   }
 
-  const secret = process.env.APP_SECRET;
   const token = jwt.sign({ userId: user._id }, secret);
 
   return res.status(200).json({
@@ -578,35 +219,26 @@ const logIn = async (req, res) => {
   });
 };
 
-/**
- * TODO: Protect the route with CORS
- * TODO: Condition when refused to login
- */
-
 const signInWithGithub = async (req, res) => {
   const { error, error_description, error_uri } = req.query;
   if (error) {
+    console.log(error, error_description, error_uri);
     return res.status(401).json({
-      error,
-      error_description,
-      error_uri,
+      messages: [error_description],
     });
   }
 
   const { state, code } = req.query;
   try {
-    const secret = process.env.APP_SECRET;
     jwt.verify(state, secret);
   } catch (err) {
     return res.status(403).json({
-      error: INVALID_OAUTH_STATE,
-      message: 'Access denied. Please log in.',
+      messages: ['Cross site requests are not allowed.'],
     });
   }
 
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
-  // const redirectUri = `${process.env.APP_URL}`;
 
   const exchangeTokenUrl = `https://github.com/login/oauth/access_token?code=${code}&client_id=${clientId}&client_secret=${clientSecret}`;
   let tokenResponse;
@@ -617,10 +249,11 @@ const signInWithGithub = async (req, res) => {
       { headers: { Accept: 'application/json ' } }
     );
   } catch (err) {
-    console.log(err);
-    return res.status(500).json({
-      error: UNKNOWN_ERROR,
-      message: 'An error ocurred.',
+    console.log(err?.response?.data);
+    return res.status(400).json({
+      errors: {
+        code: ['Invalid code.'],
+      },
     });
   }
 
@@ -633,28 +266,25 @@ const signInWithGithub = async (req, res) => {
       headers: { Authorization: `${token_type} ${access_token}` },
     });
   } catch (err) {
-    console.log(err);
-    return res.status(500).json({
-      error: UNKNOWN_ERROR,
-      message: 'An error ocurred.',
-    });
+    console.log(err?.respone?.data);
+    return res.status(500).end();
   }
 
-  let {
-    login: username,
-    email,
-    avatar_url: avatar,
-    INVALID_USERNAME,
-  } = response.data;
+  let { login: username, email, avatar_url: avatar, id } = response.data;
 
+  username = username.replace(/ /g, '_');
   if (await User.exists({ username })) {
     username += getRandomString();
   }
 
   const user = new User({
     username,
-    oAuthAccessToken: access_token,
-    oAuthTokenType: token_type,
+    oAuth: {
+      id,
+      provider: 'GITHUB',
+      accessToken: access_token,
+      tokenType: token_type,
+    },
   });
 
   if (email) {
@@ -669,10 +299,7 @@ const signInWithGithub = async (req, res) => {
     await user.save();
   } catch (err) {
     console.log(err);
-    return res.status(500).json({
-      error: UNKNOWN_ERROR,
-      message: 'An error ocurred.',
-    });
+    return res.status(500).end();
   }
 
   const secret = process.env.APP_SECRET;
@@ -692,21 +319,17 @@ const signInWithFacebook = async (req, res) => {
   if (error) {
     console.log(err, error_reason, error_description);
     return res.status(400).json({
-      err,
-      error_reason,
-      error_description,
+      messages: [error_reason],
     });
   }
 
   const { state, code } = req.query;
 
   try {
-    const secret = process.env.APP_SECRET;
     jwt.verify(state, secret);
   } catch (err) {
     return res.status(403).json({
-      error: INVALID_OAUTH_STATE,
-      message: 'Access denied. Please log in.',
+      messages: ['Cross site requests are not allowed.'],
     });
   }
 
@@ -715,18 +338,28 @@ const signInWithFacebook = async (req, res) => {
   const redirectUri = `${process.env.CLIENT_ORIGIN}/signInWithFacebook`;
   const exchangeTokenUrl = `https://graph.facebook.com/v11.0/oauth/access_token?client_id=${clientId}&redirect_uri=${redirectUri}&client_secret=${clientSecret}&code=${code}`;
 
-  const exchangeTokenResponse = await axios.get(exchangeTokenUrl);
-  const { access_token, token_type, expires_in } = exchangeTokenResponse.data;
+  let exchangeTokenResponse;
+  try {
+    exchangeTokenResponse = await axios.get(exchangeTokenUrl);
+  } catch (err) {
+    console.log(err?.response?.data);
+    return res.status(400).json({
+      code: ['Invalid code.'],
+    });
+  }
 
+  const { access_token, token_type, expires_in } = exchangeTokenResponse.data;
   const url = `https://graph.facebook.com/v11.0/me?access_token=${access_token}&fields=email,name,picture,id`;
   let response;
   try {
     response = await axios.get(url);
   } catch (err) {
-    console.log(err.response.data);
-    return res.status(400).json(err.response.data);
+    console.log(err?.response?.data);
+    return res.status(500).end();
   }
   let { name: username, email, picture, id } = response.data;
+
+  username = username.replace(/ /g, '_');
 
   if (await User.exists({ username })) {
     username += getRandomString();
@@ -734,8 +367,12 @@ const signInWithFacebook = async (req, res) => {
 
   const user = new User({
     username,
-    oAuthAccessToken: access_token,
-    oAuthTokenType: token_type,
+    oAuth: {
+      id,
+      provider: 'FACEBOOK',
+      accessToken: access_token,
+      tokenType: token_type,
+    },
   });
 
   if (email) {
@@ -750,10 +387,7 @@ const signInWithFacebook = async (req, res) => {
     await user.save();
   } catch (err) {
     console.log(err);
-    return res.status(500).json({
-      error: UNKNOWN_ERROR,
-      message: 'An   error ocurred.',
-    });
+    return res.status(500).end();
   }
 
   const secret = process.env.APP_SECRET;
@@ -771,21 +405,20 @@ const signInWithGoogle = async (req, res) => {
   const { error } = req.query;
 
   if (error) {
-    console.log(err);
+    console.log(error);
     return res.status(400).json({
-      error,
+      messages: ['Access denied.']
     });
   }
 
   const { code, state } = req.query;
 
   try {
-    const secret = process.env.APP_SECRET;
     jwt.verify(state, secret);
   } catch (err) {
+    console.log(err);
     return res.status(403).json({
-      error: INVALID_OAUTH_STATE,
-      message: 'Access denied. Please log in.',
+      messages: ['Cross site requests are not allowed.'],
     });
   }
 
@@ -794,7 +427,17 @@ const signInWithGoogle = async (req, res) => {
   const redirectUri = `${process.env.CLIENT_ORIGIN}/signInWithGoogle`;
   const exchangeTokenUrl = `https://oauth2.googleapis.com/token?code=${code}&client_id=${clientId}&client_secret=${clientSecret}&redirect_uri=${redirectUri}&grant_type=authorization_code`;
 
-  const exchangeTokenResponse = await axios.post(exchangeTokenUrl);
+  const exchangeTokenResponse;
+  try {
+    await axios.post(exchangeTokenUrl)
+  } catch(err) {
+    console.log(err?.response?.data);
+    return res.status(400).json({
+      errors: {
+        code: ['Invalid code.']
+      }
+    })
+  }
 
   const { access_token, token_type, scope, expires_in } =
     exchangeTokenResponse.data;
@@ -806,16 +449,13 @@ const signInWithGoogle = async (req, res) => {
       headers: { Authorization: `${token_type} ${access_token}` },
     });
   } catch (err) {
-    console.log(err);
-    return res.status(500).json({
-      error: UNKNOWN_ERROR,
-      message: 'An error ocurred.',
-    });
+    console.log(err?.response?.data);
+    return res.status(500).end(); 
   }
 
   const { name, email, picture: avatar, id } = response.data;
 
-  const username = name.replace(/ /g, '');
+  const username = name.replace(/ /g, '_');
 
   if (await User.exists({ username })) {
     username += getRandomString();
@@ -823,8 +463,12 @@ const signInWithGoogle = async (req, res) => {
 
   const user = new User({
     username,
-    oAuthAccessToken: access_token,
-    oAuthTokenType: token_type,
+    oAuth: {
+      id,
+      provider: 'GOOGLE',
+      accessToken: access_token,
+      tokenType: token_type,
+    }
   });
 
   if (email) {
@@ -839,10 +483,7 @@ const signInWithGoogle = async (req, res) => {
     await user.save();
   } catch (err) {
     console.log(err);
-    return res.status(500).json({
-      error: UNKNOWN_ERROR,
-      message: 'An error ocurred.',
-    });
+    return res.status(500).end();
   }
 
   const secret = process.env.APP_SECRET;
@@ -857,13 +498,8 @@ const signInWithGoogle = async (req, res) => {
 };
 
 module.exports = {
-  signUp,
   signUpWithEmail,
   signUpWithPhoneNumber,
-  verifyEmail,
-  sendNewEmail,
-  verifyPhoneNumber,
-  sendNewOTP,
   signInWithGithub,
   signInWithFacebook,
   signInWithGoogle,

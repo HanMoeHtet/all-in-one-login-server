@@ -6,6 +6,8 @@ const auth = {
   pass: process.env.EMAIL_PASSWORD,
 };
 
+const appName = process.env.APP_NAME;
+
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 587,
@@ -15,7 +17,7 @@ const transporter = nodemailer.createTransport({
 
 const sendMail = async ({ to, subject, text, html }) => {
   try {
-    const res = await transporter.sendMail({
+    await transporter.sendMail({
       from: auth.user,
       to,
       subject,
@@ -24,17 +26,27 @@ const sendMail = async ({ to, subject, text, html }) => {
     });
   } catch (err) {
     console.log(err);
+    throw Error();
   }
 };
 
-const sendVerificationMail = ({ to, verificationEndPoint }) => {
+const sendVerificationMail = async ({ to, verificationEndPoint, username }) => {
   const subject = 'Confirm your email';
-  const text = '';
-  const html = getHTMLForVerificationMail(verificationEndPoint);
-  sendMail({ to, subject, text, html });
+  const text = getTextForVerificationMail(verificationEndPoint, useranme);
+  const html = getHTMLForVerificationMail(verificationEndPoint, username);
+  await sendMail({ to, subject, text, html });
 };
 
-const getHTMLForVerificationMail = (link) => {
+const getTextForVerificationMail = (link, username = null) => {
+  return `${username ? `Hello ${username}` : 'Dear user'}\r\n\n
+    Thanks for signing up for ${appName}. To use your account, you'll first need to confirm your email via link below.\r\n
+    Copy the following link and paste it in your preferred browser.\r\n
+    ${link}\r\n\n
+    Thanks,\r\n
+    ${appName}\r\n`;
+};
+
+const getHTMLForVerificationMail = (link, username = null) => {
   return `
   <!DOCTYPE html>
   <html lang="en">
@@ -46,17 +58,16 @@ const getHTMLForVerificationMail = (link) => {
   <body>
     <div style="font-family: sans-serif; border: 1px solid gray; padding: 15px; width: 75%; border-radius: 7px;">
       <h1 style="color: blue;">Confirm your email address</h1>
-      <p>Hello %username%</p>
-      <p>Thanks for signing up for %appname%. To use your account, you'll first need to confirm your email via
+      <p>${username ? `Hello ${username}` : 'Dear user'}</p>
+      <p>Thanks for signing up for ${appName}. To use your account, you'll first need to confirm your email via
         button below.
       </p>
       <a href="${link}"
         style="text-decoration: none; background-color: blue; color: white; padding: 10px; border-radius: 5px;">
         Confirm your email
       </a>
-      <p>If you have questions about your account, please click Help & Contact.</p>
       <p>Thanks,</p>
-      <p>%appname%</p>
+      <p>${appName}</p>
     </div>
   </body>
   </html>`;
