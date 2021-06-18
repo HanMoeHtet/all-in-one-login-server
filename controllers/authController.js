@@ -153,21 +153,21 @@ const signInWithToken = async (req, res) => {
     console.log(err);
     return res.status(400).json({
       errors: {
-        token: ['Invalid token.']
-      }
+        token: ['Invalid token.'],
+      },
     });
   }
 
   let user;
   try {
     user = await User.findOne({ _id: userId });
-    if(!user) throw Error();
+    if (!user) throw Error();
   } catch (err) {
     console.log(err);
     return res.status(400).json({
       errors: {
-        token: ['Invalid token.']
-      }
+        token: ['Invalid token.'],
+      },
     });
   }
 
@@ -191,9 +191,9 @@ const logIn = async (req, res) => {
     console.log(err);
     return res.status(404).json({
       errors: {
-        username: ['A user with that username does not exists.']
-      }
-    })
+        username: ['A user with that username does not exists.'],
+      },
+    });
   }
 
   let isPasswordCorrect;
@@ -207,8 +207,8 @@ const logIn = async (req, res) => {
   if (!isPasswordCorrect) {
     return res.status(401).json({
       errors: {
-        password: ['Incorrect password.']
-      }
+        password: ['Incorrect password.'],
+      },
     });
   }
 
@@ -407,7 +407,7 @@ const signInWithGoogle = async (req, res) => {
   if (error) {
     console.log(error);
     return res.status(400).json({
-      messages: ['Access denied.']
+      messages: ['Access denied.'],
     });
   }
 
@@ -427,16 +427,16 @@ const signInWithGoogle = async (req, res) => {
   const redirectUri = `${process.env.CLIENT_ORIGIN}/signInWithGoogle`;
   const exchangeTokenUrl = `https://oauth2.googleapis.com/token?code=${code}&client_id=${clientId}&client_secret=${clientSecret}&redirect_uri=${redirectUri}&grant_type=authorization_code`;
 
-  const exchangeTokenResponse;
+  let exchangeTokenResponse;
   try {
-    await axios.post(exchangeTokenUrl)
-  } catch(err) {
+    exchangeTokenResponse = await axios.post(exchangeTokenUrl);
+  } catch (err) {
     console.log(err?.response?.data);
     return res.status(400).json({
       errors: {
-        code: ['Invalid code.']
-      }
-    })
+        code: ['Invalid code.'],
+      },
+    });
   }
 
   const { access_token, token_type, scope, expires_in } =
@@ -450,7 +450,7 @@ const signInWithGoogle = async (req, res) => {
     });
   } catch (err) {
     console.log(err?.response?.data);
-    return res.status(500).end(); 
+    return res.status(500).end();
   }
 
   const { name, email, picture: avatar, id } = response.data;
@@ -468,7 +468,7 @@ const signInWithGoogle = async (req, res) => {
       provider: 'GOOGLE',
       accessToken: access_token,
       tokenType: token_type,
-    }
+    },
   });
 
   if (email) {
