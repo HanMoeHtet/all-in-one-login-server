@@ -262,6 +262,17 @@ const signUpWithPhoneNumber = async (req, res) => {
   });
 };
 
+const signInWithOAuth = async (req, res) => {
+  const { oAuthProvider } = req.body;
+  const oAuthConsentUrl = await prepareOAuthVerification(oAuthProvider);
+
+  return res.status(200).json({
+    data: {
+      oAuthConsentUrl,
+    },
+  });
+};
+
 const verifyEmail = async (req, res) => {
   const { token } = req.body;
   let userId;
@@ -524,6 +535,10 @@ const signInWithToken = async (req, res) => {
     return res.status(400).send();
   }
 
+  if (!user) {
+    return res.status(400).send();
+  }
+
   return res.status(200).json({
     data: {
       user: prepareUserResponseData(user),
@@ -565,11 +580,8 @@ const logIn = async (req, res) => {
 
 /**
  * TODO: Protect the route with CORS
- * TODO: Create user
- * TODO: Refused to login
+ * TODO: Condition when refused to login
  */
-
-// const clientUrl = `https://github.com/login/oauth/authorize?client_id=&redirect_uri=`;
 
 const signInWithGithub = async (req, res) => {
   const { error, error_description, error_uri } = req.query;
@@ -582,7 +594,6 @@ const signInWithGithub = async (req, res) => {
   }
 
   const { state, code } = req.query;
-
   try {
     const secret = process.env.APP_SECRET;
     jwt.verify(state, secret);
@@ -629,7 +640,12 @@ const signInWithGithub = async (req, res) => {
     });
   }
 
-  let { login: username, email, avatar_url: avatar } = response.data;
+  let {
+    login: username,
+    email,
+    avatar_url: avatar,
+    INVALID_USERNAME,
+  } = response.data;
 
   if (await User.exists({ username })) {
     username += getRandomString();
@@ -659,13 +675,16 @@ const signInWithGithub = async (req, res) => {
     });
   }
 
+  const secret = process.env.APP_SECRET;
+  const jwtToken = jwt.sign({ userId: user._id }, secret);
+
   return res.status(200).json({
-    data: prepareUserResponseData(user),
-    message: 'User successfully created.',
+    data: {
+      user: prepareUserResponseData(user),
+      token: jwtToken,
+    },
   });
 };
-
-// const clientUrl = `https://www.facebook.com/v11.0/dialog/oauth?client_id=&redirect_uri=&state=`
 
 const signInWithFacebook = async (req, res) => {
   const { error_reason, error, error_description } = req.query;
@@ -681,25 +700,72 @@ const signInWithFacebook = async (req, res) => {
 
   const { state, code } = req.query;
 
+  try {
+    const secret = process.env.APP_SECRET;
+    jwt.verify(state, secret);
+  } catch (err) {
+    return res.status(403).json({
+      error: INVALID_OAUTH_STATE,
+      message: 'Access denied. Please log in.',
+    });
+  }
+
   const clientId = process.env.FACEBOOK_CLIENT_ID;
   const clientSecret = process.env.FACEBOOK_CLIENT_SECRET;
-  const redirectUri = `${process.env.APP_URL}/signInWithFacebook`;
+  const redirectUri = `${process.env.CLIENT_ORIGIN}/signInWithFacebook`;
   const exchangeTokenUrl = `https://graph.facebook.com/v11.0/oauth/access_token?client_id=${clientId}&redirect_uri=${redirectUri}&client_secret=${clientSecret}&code=${code}`;
 
   const exchangeTokenResponse = await axios.get(exchangeTokenUrl);
   const { access_token, token_type, expires_in } = exchangeTokenResponse.data;
 
-  const url = `https://graph.facebook.com/v11.0/me?access_token=${access_token}&fields=email,name`;
+  const url = `https://graph.facebook.com/v11.0/me?access_token=${access_token}&fields=email,name,picture,id`;
   let response;
   try {
     response = await axios.get(url);
   } catch (err) {
+    console.log(err.response.data);
     return res.status(400).json(err.response.data);
   }
-  return res.status(200).json(response.data);
-};
+  let { name: username, email, picture, id } = response.data;
 
-// const clientUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=&redirect_uri=&response_type=code&scope=https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile`;
+  if (await User.exists({ username })) {
+    username += getRandomString();
+  }
+
+  const user = new User({
+    username,
+    oAuthAccessToken: access_token,
+    oAuthTokenType: token_type,
+  });
+
+  if (email) {
+    user.email = email;
+  }
+
+  if (picture.data.is_silhouette) {
+    user.avatar = picture.data.url;
+  }
+
+  try {
+    await user.save();
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({
+      error: UNKNOWN_ERROR,
+      message: 'An   error ocurred.',
+    });
+  }
+
+  const secret = process.env.APP_SECRET;
+  const jwtToken = jwt.sign({ userId: user._id }, secret);
+
+  return res.status(200).json({
+    data: {
+      user: prepareUserResponseData(user),
+      token: jwtToken,
+    },
+  });
+};
 
 const signInWithGoogle = async (req, res) => {
   const { error } = req.query;
@@ -711,11 +777,21 @@ const signInWithGoogle = async (req, res) => {
     });
   }
 
-  const { code } = req.query;
+  const { code, state } = req.query;
+
+  try {
+    const secret = process.env.APP_SECRET;
+    jwt.verify(state, secret);
+  } catch (err) {
+    return res.status(403).json({
+      error: INVALID_OAUTH_STATE,
+      message: 'Access denied. Please log in.',
+    });
+  }
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = `${process.env.APP_URL}/signInWithGoogle`;
+  const redirectUri = `${process.env.CLIENT_ORIGIN}/signInWithGoogle`;
   const exchangeTokenUrl = `https://oauth2.googleapis.com/token?code=${code}&client_id=${clientId}&client_secret=${clientSecret}&redirect_uri=${redirectUri}&grant_type=authorization_code`;
 
   const exchangeTokenResponse = await axios.post(exchangeTokenUrl);
@@ -724,12 +800,60 @@ const signInWithGoogle = async (req, res) => {
     exchangeTokenResponse.data;
 
   const url = 'https://www.googleapis.com/oauth2/v2/userinfo';
-  const response = await axios.get(url, {
-    headers: { Authorization: `${token_type} ${access_token}` },
+  let response;
+  try {
+    response = await axios.get(url, {
+      headers: { Authorization: `${token_type} ${access_token}` },
+    });
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({
+      error: UNKNOWN_ERROR,
+      message: 'An error ocurred.',
+    });
+  }
+
+  const { name, email, picture: avatar, id } = response.data;
+
+  const username = name.replace(/ /g, '');
+
+  if (await User.exists({ username })) {
+    username += getRandomString();
+  }
+
+  const user = new User({
+    username,
+    oAuthAccessToken: access_token,
+    oAuthTokenType: token_type,
   });
 
-  console.log(response.data);
-  return res.status(200).json(response.data);
+  if (email) {
+    user.email = email;
+  }
+
+  if (avatar) {
+    user.avatar = avatar;
+  }
+
+  try {
+    await user.save();
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({
+      error: UNKNOWN_ERROR,
+      message: 'An error ocurred.',
+    });
+  }
+
+  const secret = process.env.APP_SECRET;
+  const jwtToken = jwt.sign({ userId: user._id }, secret);
+
+  return res.status(200).json({
+    data: {
+      user: prepareUserResponseData(user),
+      token: jwtToken,
+    },
+  });
 };
 
 module.exports = {
@@ -745,4 +869,5 @@ module.exports = {
   signInWithGoogle,
   signInWithToken,
   logIn,
+  signInWithOAuth,
 };

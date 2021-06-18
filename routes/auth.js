@@ -12,6 +12,7 @@ const {
   signInWithFacebook,
   signInWithGoogle,
   signInWithToken,
+  signInWithOAuth,
   logIn,
 } = require('../controllers/authController');
 const { authMiddleware } = require('../middlewares/authMiddleware');
@@ -20,9 +21,10 @@ router.post('/signUp', signUp);
 router.post('/signUpWithEmail', signUpWithEmail);
 router.post('/signUpWithPhoneNumber', signUpWithPhoneNumber);
 router.post('/verifyEmail', verifyEmail);
-router.get('/sendNewEmail', authMiddleware, sendNewEmail);
+router.get('/sendNewEmail', sendNewEmail);
 router.post('/verifyPhoneNumber', verifyPhoneNumber);
-router.get('/sendNewOTP', authMiddleware, sendNewOTP);
+router.get('/sendNewOTP', sendNewOTP);
+router.post('/signInWithOAuth', signInWithOAuth);
 
 router.post('/logIn', logIn);
 router.post('/signInWithToken', signInWithToken);
