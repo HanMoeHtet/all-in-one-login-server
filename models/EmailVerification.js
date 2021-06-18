@@ -6,10 +6,6 @@ const EmailVerificationSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
-  secret: {
-    type: String,
-    required: true,
-  },
   createdAt: {
     type: Date,
     required: true,

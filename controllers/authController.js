@@ -263,8 +263,7 @@ const signUpWithPhoneNumber = async (req, res) => {
 };
 
 const verifyEmail = async (req, res) => {
-  const { token } = req.query;
-
+  const { token } = req.body;
   let userId;
   try {
     ({ userId } = jwt.decode(token));
@@ -281,7 +280,7 @@ const verifyEmail = async (req, res) => {
   let user = await User.findOne({
     _id: userId,
   });
-
+  console.log(user);
   if (!user) {
     console.log('userId: ', userId);
     return res.status(400).json({
@@ -334,9 +333,11 @@ const verifyEmail = async (req, res) => {
     });
   }
 
+  const secret = process.env.APP_SECRET;
   try {
-    jwt.verify(token, emailVerification.secret);
+    jwt.verify(token, secret);
   } catch (err) {
+    console.log(err);
     return res.status(400).json({
       error: INVALID_EMAIL_VERIFICATION_TOKEN,
       message:
@@ -351,11 +352,13 @@ const verifyEmail = async (req, res) => {
   user.emailVerifiedAt = Date.now();
   await user.save();
 
+  const jwtToken = jwt.sign({ userId: user._id }, secret);
+
   return res.status(200).json({
     data: {
-      emailVerifiedAt: user.emailVerifiedAt,
+      user: prepareUserResponseData(user),
+      token: jwtToken,
     },
-    message: `Email verified at ${user.emailVerifiedAt}`,
   });
 };
 
@@ -499,6 +502,64 @@ const sendNewOTP = async (req, res) => {
   return res.status(200).json({
     data: {},
     message: `Verification code sent to ${req.user.phoneNumber}`,
+  });
+};
+
+const signInWithToken = async (req, res) => {
+  const { token } = req.body;
+
+  let userId;
+  const secret = process.env.APP_SECRET;
+  try {
+    ({ userId } = jwt.verify(token, secret));
+  } catch (err) {
+    console.log(err);
+    return res.status(400).send();
+  }
+  let user;
+  try {
+    user = await User.findOne({ _id: userId });
+  } catch (err) {
+    console.log(err);
+    return res.status(400).send();
+  }
+
+  return res.status(200).json({
+    data: {
+      user: prepareUserResponseData(user),
+    },
+  });
+};
+
+const logIn = async (req, res) => {
+  const { username, password } = req.body;
+
+  let user;
+  try {
+    user = await User.findOne({
+      username,
+    });
+    if (!user) throw Error();
+  } catch (err) {
+    console.log(err);
+  }
+
+  let isPasswordCorrect;
+  try {
+    isPasswordCorrect = bcrypt.compare(password, user.hash);
+  } catch (err) {
+    console.log(err);
+  }
+
+  if (!isPasswordCorrect) {
+    return res.status(401).send();
+  }
+
+  const secret = process.env.APP_SECRET;
+  const token = jwt.sign({ userId: user._id }, secret);
+
+  return res.status(200).json({
+    data: { user: prepareUserResponseData(user), token },
   });
 };
 
@@ -682,4 +743,6 @@ module.exports = {
   signInWithGithub,
   signInWithFacebook,
   signInWithGoogle,
+  signInWithToken,
+  logIn,
 };
