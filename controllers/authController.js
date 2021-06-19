@@ -272,12 +272,55 @@ const signInWithGithub = async (req, res) => {
 
   let { login: username, email, avatar_url: avatar, id } = response.data;
 
+  let user = User.findOne({ 'oAuth.id': id });
+  if (user) {
+    const jwtToken = jwt.sign({ userId: user._id }, secret);
+
+    return res.status(200).json({
+      data: {
+        user: prepareUserResponseData(user),
+        token: jwtToken,
+      },
+    });
+  }
+
+  if (email) {
+    const user = User.findOne({ email });
+    if (user) {
+      user.oAuth = {
+        id,
+        provider: 'GITHUB',
+        accessToken: access_token,
+        tokenType: token_type,
+      };
+      if (avatar && !user.avatar) {
+        user.avatar = avatar;
+      }
+
+      try {
+        await user.save();
+      } catch (err) {
+        console.log(err);
+        return res.status(500).end();
+      }
+
+      const jwtToken = jwt.sign({ userId: user._id }, secret);
+
+      return res.status(200).json({
+        data: {
+          user: prepareUserResponseData(user),
+          token: jwtToken,
+        },
+      });
+    }
+  }
+
   username = username.replace(/ /g, '_');
   if (await User.exists({ username })) {
     username += getRandomString();
   }
 
-  const user = new User({
+  user = new User({
     username,
     oAuth: {
       id,
@@ -358,6 +401,50 @@ const signInWithFacebook = async (req, res) => {
     return res.status(500).end();
   }
   let { name: username, email, picture, id } = response.data;
+  const avatar = picture.is_silhouette ? null : picture.data.url;
+
+  let user = User.findOne({ 'oAuth.id': id });
+  if (user) {
+    const jwtToken = jwt.sign({ userId: user._id }, secret);
+
+    return res.status(200).json({
+      data: {
+        user: prepareUserResponseData(user),
+        token: jwtToken,
+      },
+    });
+  }
+
+  if (email) {
+    const user = User.findOne({ email });
+    if (user) {
+      user.oAuth = {
+        id,
+        provider: 'FACEBOOK',
+        accessToken: access_token,
+        tokenType: token_type,
+      };
+      if (avatar && !user.avatar) {
+        user.avatar = avatar;
+      }
+
+      try {
+        await user.save();
+      } catch (err) {
+        console.log(err);
+        return res.status(500).end();
+      }
+
+      const jwtToken = jwt.sign({ userId: user._id }, secret);
+
+      return res.status(200).json({
+        data: {
+          user: prepareUserResponseData(user),
+          token: jwtToken,
+        },
+      });
+    }
+  }
 
   username = username.replace(/ /g, '_');
 
@@ -365,7 +452,7 @@ const signInWithFacebook = async (req, res) => {
     username += getRandomString();
   }
 
-  const user = new User({
+  user = new User({
     username,
     oAuth: {
       id,
@@ -379,8 +466,8 @@ const signInWithFacebook = async (req, res) => {
     user.email = email;
   }
 
-  if (picture.data.is_silhouette) {
-    user.avatar = picture.data.url;
+  if (avatar) {
+    user.avatar = avatar;
   }
 
   try {
@@ -455,13 +542,56 @@ const signInWithGoogle = async (req, res) => {
 
   const { name, email, picture: avatar, id } = response.data;
 
+  let user = User.findOne({ 'oAuth.id': id });
+  if (user) {
+    const jwtToken = jwt.sign({ userId: user._id }, secret);
+
+    return res.status(200).json({
+      data: {
+        user: prepareUserResponseData(user),
+        token: jwtToken,
+      },
+    });
+  }
+
+  if (email) {
+    const user = User.findOne({ email });
+    if (user) {
+      user.oAuth = {
+        id,
+        provider: 'GOOGLE',
+        accessToken: access_token,
+        tokenType: token_type,
+      };
+      if (avatar && !user.avatar) {
+        user.avatar = avatar;
+      }
+
+      try {
+        await user.save();
+      } catch (err) {
+        console.log(err);
+        return res.status(500).end();
+      }
+
+      const jwtToken = jwt.sign({ userId: user._id }, secret);
+
+      return res.status(200).json({
+        data: {
+          user: prepareUserResponseData(user),
+          token: jwtToken,
+        },
+      });
+    }
+  }
+
   const username = name.replace(/ /g, '_');
 
   if (await User.exists({ username })) {
     username += getRandomString();
   }
 
-  const user = new User({
+  user = new User({
     username,
     oAuth: {
       id,
@@ -471,12 +601,11 @@ const signInWithGoogle = async (req, res) => {
     },
   });
 
-  if (email) {
-    user.email = email;
-  }
-
   if (avatar) {
     user.avatar = avatar;
+  }
+  if (email) {
+    user.email = email;
   }
 
   try {
@@ -486,7 +615,6 @@ const signInWithGoogle = async (req, res) => {
     return res.status(500).end();
   }
 
-  const secret = process.env.APP_SECRET;
   const jwtToken = jwt.sign({ userId: user._id }, secret);
 
   return res.status(200).json({
