@@ -139,7 +139,7 @@ const verifyPhoneNumber = async (req, res) => {
 
     return res.status(410).json({
       errors: {
-        userId: [`OTP expired at ${expiredDate}.`],
+        otp: [`OTP expired at ${expiredDate}.`],
       },
     });
   }
@@ -210,7 +210,7 @@ const sendNewEmail = async (req, res) => {
 
   let user;
   try {
-    user = User.findOne({
+    user = await User.findOne({
       _id: userId,
     });
     if (!user) throw Error();
@@ -238,6 +238,7 @@ const sendNewEmail = async (req, res) => {
   }
 
   try {
+    console.log(user);
     const verificationEndPoint = await prepareVerificationMail(user._id);
     sendVerificationMail({
       to: user.email,

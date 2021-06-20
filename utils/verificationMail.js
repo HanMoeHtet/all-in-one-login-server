@@ -6,6 +6,7 @@ const EmailVerification = require('../models/EmailVerification');
 const secret = process.env.APP_SECRET;
 
 const prepareVerificationMail = async (userId) => {
+  console.log(userId);
   const emailVerification = new EmailVerification({
     userId,
   });

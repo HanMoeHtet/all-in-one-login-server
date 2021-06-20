@@ -32,7 +32,7 @@ const sendMail = async ({ to, subject, text, html }) => {
 
 const sendVerificationMail = async ({ to, verificationEndPoint, username }) => {
   const subject = 'Confirm your email';
-  const text = getTextForVerificationMail(verificationEndPoint, useranme);
+  const text = getTextForVerificationMail(verificationEndPoint, username);
   const html = getHTMLForVerificationMail(verificationEndPoint, username);
   await sendMail({ to, subject, text, html });
 };

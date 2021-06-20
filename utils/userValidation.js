@@ -47,7 +47,7 @@ const validateUsername = (username, required = true) => {
   if (required && username.length === 0) {
     isValid = false;
     messages.push('Username is required.');
-    return [isValid, messags];
+    return [isValid, messages];
   }
 
   if (username.includes(' ')) {
@@ -83,7 +83,7 @@ const validateEmail = (email, required = true) => {
   if (required && email.length === 0) {
     isValid = false;
     messages.push('Email is required.');
-    return [isValid, messags];
+    return [isValid, messages];
   }
 
   const regex =
@@ -106,7 +106,7 @@ const validatePassword = (password, required = true) => {
   if (required && password.length === 0) {
     isValid = true;
     messages.push('Password is required.');
-    return [isValid, messags];
+    return [isValid, messages];
   }
 
   if (
@@ -185,7 +185,7 @@ const validateCountryCode = (countryCode) => {
   if (countryCode.length === 0) {
     isValid = false;
     messages.push('Country code is required.');
-    return [isValid, messags];
+    return [isValid, messages];
   }
 
   if (!countryCodes.find((countryCode) => countryCode.dial_code)) {
@@ -245,7 +245,7 @@ const validateEmailSignUp = async ({
   errors.email.push(...messages);
 
   if (isValid) {
-    errors.email.push(...(await checkIfEmailExists(email)[1]));
+    errors.email.push(...(await checkIfEmailExists(email))[1]);
   }
 
   return [isValid, errors];

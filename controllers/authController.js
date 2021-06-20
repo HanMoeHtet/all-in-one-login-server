@@ -198,7 +198,7 @@ const logIn = async (req, res) => {
 
   let isPasswordCorrect;
   try {
-    isPasswordCorrect = bcrypt.compare(password, user.hash);
+    isPasswordCorrect = await bcrypt.compare(password, user.hash);
   } catch (err) {
     console.log(err);
     return res.status(500).end();
@@ -361,7 +361,7 @@ const signInWithFacebook = async (req, res) => {
 
   if (error) {
     console.log(err, error_reason, error_description);
-    return res.status(400).json({
+    return res.status(401).json({
       messages: [error_reason],
     });
   }
@@ -493,7 +493,7 @@ const signInWithGoogle = async (req, res) => {
 
   if (error) {
     console.log(error);
-    return res.status(400).json({
+    return res.status(401).json({
       messages: ['Access denied.'],
     });
   }
