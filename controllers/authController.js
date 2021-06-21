@@ -196,6 +196,14 @@ const logIn = async (req, res) => {
     });
   }
 
+  if (!user.hash) {
+    return res.status(401).json({
+      errors: {
+        password: ['Incorrect password.'],
+      },
+    });
+  }
+
   let isPasswordCorrect;
   try {
     isPasswordCorrect = await bcrypt.compare(password, user.hash);
@@ -232,6 +240,7 @@ const signInWithGithub = async (req, res) => {
   try {
     jwt.verify(state, secret);
   } catch (err) {
+    console.log(err);
     return res.status(403).json({
       messages: ['Cross site requests are not allowed.'],
     });
@@ -272,7 +281,7 @@ const signInWithGithub = async (req, res) => {
 
   let { login: username, email, avatar_url: avatar, id } = response.data;
 
-  let user = User.findOne({ 'oAuth.id': id });
+  let user = await User.findOne({ 'oAuth.id': id });
   if (user) {
     const jwtToken = jwt.sign({ userId: user._id }, secret);
 
@@ -285,7 +294,7 @@ const signInWithGithub = async (req, res) => {
   }
 
   if (email) {
-    const user = User.findOne({ email });
+    const user = await User.findOne({ email });
     if (user) {
       user.oAuth = {
         id,
@@ -345,7 +354,6 @@ const signInWithGithub = async (req, res) => {
     return res.status(500).end();
   }
 
-  const secret = process.env.APP_SECRET;
   const jwtToken = jwt.sign({ userId: user._id }, secret);
 
   return res.status(200).json({
@@ -403,7 +411,7 @@ const signInWithFacebook = async (req, res) => {
   let { name: username, email, picture, id } = response.data;
   const avatar = picture.is_silhouette ? null : picture.data.url;
 
-  let user = User.findOne({ 'oAuth.id': id });
+  let user = await User.findOne({ 'oAuth.id': id });
   if (user) {
     const jwtToken = jwt.sign({ userId: user._id }, secret);
 
@@ -416,7 +424,7 @@ const signInWithFacebook = async (req, res) => {
   }
 
   if (email) {
-    const user = User.findOne({ email });
+    const user = await User.findOne({ email });
     if (user) {
       user.oAuth = {
         id,
@@ -542,7 +550,8 @@ const signInWithGoogle = async (req, res) => {
 
   const { name, email, picture: avatar, id } = response.data;
 
-  let user = User.findOne({ 'oAuth.id': id });
+  let user = await User.findOne({ 'oAuth.id': id });
+
   if (user) {
     const jwtToken = jwt.sign({ userId: user._id }, secret);
 
@@ -553,9 +562,8 @@ const signInWithGoogle = async (req, res) => {
       },
     });
   }
-
   if (email) {
-    const user = User.findOne({ email });
+    const user = await User.findOne({ email });
     if (user) {
       user.oAuth = {
         id,
@@ -566,7 +574,7 @@ const signInWithGoogle = async (req, res) => {
       if (avatar && !user.avatar) {
         user.avatar = avatar;
       }
-
+      console.log(user);
       try {
         await user.save();
       } catch (err) {

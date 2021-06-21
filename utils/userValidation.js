@@ -252,19 +252,19 @@ const validateEmailSignUp = async ({
 };
 
 const validatePhoneNumberSignUp = async ({
-  useranme,
+  username,
   password,
   passwordConfirmation,
   countryCode,
   phoneNumber,
 }) => {
-  const [isValid, errors] = validateSignUp({
+  let [isValid, errors] = await validateSignUp({
     username,
     password,
     passwordConfirmation,
   });
 
-  errors.passwordConfirmation = [];
+  errors.phoneNumber = [];
   errors.countryCode = [];
 
   errors.countryCode.push(...validateCountryCode(countryCode)[1]);
